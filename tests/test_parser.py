@@ -75,3 +75,14 @@ def test_invalid_line_raises(tmp_env):
     path = tmp_env("THIS IS INVALID\n")
     with pytest.raises(EnvParseError, match="Invalid syntax"):
         parse_env_file(path)
+
+
+def test_invalid_line_error_includes_line_number(tmp_env):
+    """EnvParseError should report the line number of the offending line."""
+    path = tmp_env("""
+        VALID=ok
+        THIS IS INVALID
+        ALSO=fine
+    """)
+    with pytest.raises(EnvParseError, match="line 2"):
+        parse_env_file(path)
