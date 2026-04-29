@@ -2,52 +2,50 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
-from argparse import ArgumentParser, Namespace
-from pathlib import Path
+from typing import List, Optional
 
 from envdiff.comparator import compare_envs
-from envdiff.formatter import OutputFormat, format_result
 from envdiff.parser import EnvParseError, parse_env_file
+from envdiff.reporter import ReportError, report_exit_code, write_report
 
 
-def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         prog="envdiff",
-        description="Compare .env files across environments and highlight differences.",
+        description="Compare .env files and highlight missing or mismatched keys.",
     )
-    parser.add_argument("left", type=Path, help="First .env file (e.g. .env.development)")
-    parser.add_argument("right", type=Path, help="Second .env file (e.g. .env.production)")
+    parser.add_argument("left", help="First .env file (the reference).")
+    parser.add_argument("right", help="Second .env file (compared against reference).")
     parser.add_argument(
         "--format",
-        dest="fmt",
+        "-f",
         choices=["text", "json", "markdown"],
         default="text",
-        help="Output format (default: text)",
+        dest="fmt",
+        help="Output format (default: text).",
     )
     parser.add_argument(
-        "--left-label",
+        "--output",
+        "-o",
+        metavar="FILE",
         default=None,
-        help="Display label for the left file (default: filename)",
+        help="Write report to FILE instead of stdout.",
     )
     parser.add_argument(
-        "--right-label",
-        default=None,
-        help="Display label for the right file (default: filename)",
-    )
-    parser.add_argument(
-        "--exit-code",
+        "--no-color",
         action="store_true",
-        help="Exit with code 1 when differences are found",
+        default=False,
+        help="Disable ANSI colour codes in text output.",
     )
     return parser
 
 
-def run(args: Namespace) -> int:
-    """Execute the comparison and print results. Returns exit code."""
-    left_label: str = args.left_label or args.left.name
-    right_label: str = args.right_label or args.right.name
-    fmt: OutputFormat = args.fmt  # type: ignore[assignment]
+def run(argv: Optional[List[str]] = None) -> int:
+    """Parse *argv*, run the comparison and return an exit code."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     try:
         left_env = parse_env_file(args.left)
@@ -56,22 +54,27 @@ def run(args: Namespace) -> int:
         print(f"envdiff: parse error: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
-        print(f"envdiff: cannot read file: {exc}", file=sys.stderr)
+        print(f"envdiff: {exc}", file=sys.stderr)
         return 2
 
     result = compare_envs(left_env, right_env)
-    output = format_result(result, fmt=fmt, left_label=left_label, right_label=right_label)
-    print(output, end="")
 
-    if args.exit_code and result.diffs:
-        return 1
-    return 0
+    try:
+        write_report(
+            result,
+            fmt=args.fmt,
+            output_path=args.output,
+            color=not args.no_color,
+        )
+    except ReportError as exc:
+        print(f"envdiff: {exc}", file=sys.stderr)
+        return 2
+
+    return report_exit_code(result)
 
 
 def main() -> None:  # pragma: no cover
-    parser = build_parser()
-    args = parser.parse_args()
-    sys.exit(run(args))
+    sys.exit(run())
 
 
 if __name__ == "__main__":  # pragma: no cover
