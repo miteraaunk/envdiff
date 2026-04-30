@@ -56,6 +56,16 @@ def test_write_report_json_stdout(capsys, some_diffs):
     assert "SECRET" in data["missing_in_right"]
 
 
+def test_write_report_json_stdout_no_diffs(capsys, no_diffs):
+    """JSON output for an empty diff should still be valid JSON with empty collections."""
+    write_report(no_diffs, fmt="json", color=False)
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["missing_in_right"] == []
+    assert data["missing_in_left"] == []
+    assert data["mismatches"] == {}
+
+
 def test_write_report_markdown_stdout(capsys, some_diffs):
     write_report(some_diffs, fmt="markdown", color=False)
     captured = capsys.readouterr()
