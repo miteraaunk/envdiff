@@ -4,46 +4,55 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import List, Optional
+from typing import Sequence
 
 from envdiff.comparator import compare_envs
+from envdiff.filter import build_filter_config
+from envdiff.formatter import format_result
 from envdiff.parser import EnvParseError, parse_env_file
 from envdiff.reporter import ReportError, report_exit_code, write_report
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    p = argparse.ArgumentParser(
         prog="envdiff",
-        description="Compare .env files and highlight missing or mismatched keys.",
+        description="Compare .env files across environments.",
     )
-    parser.add_argument("left", help="First .env file (the reference).")
-    parser.add_argument("right", help="Second .env file (compared against reference).")
-    parser.add_argument(
+    p.add_argument("left", help="First .env file (reference)")
+    p.add_argument("right", help="Second .env file (target)")
+    p.add_argument(
         "--format",
-        "-f",
         choices=["text", "json", "markdown"],
         default="text",
         dest="fmt",
-        help="Output format (default: text).",
+        help="Output format (default: text)",
     )
-    parser.add_argument(
-        "--output",
-        "-o",
+    p.add_argument(
+        "--output", "-o",
         metavar="FILE",
-        default=None,
-        help="Write report to FILE instead of stdout.",
+        help="Write report to FILE instead of stdout",
     )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable ANSI colour codes in text output.",
+    p.add_argument(
+        "--prefix",
+        metavar="PREFIX",
+        help="Only compare keys starting with PREFIX",
     )
-    return parser
+    p.add_argument(
+        "--include",
+        metavar="PATTERN",
+        action="append",
+        help="Glob pattern of keys to include (repeatable)",
+    )
+    p.add_argument(
+        "--exclude",
+        metavar="PATTERN",
+        action="append",
+        help="Glob pattern of keys to exclude (repeatable)",
+    )
+    return p
 
 
-def run(argv: Optional[List[str]] = None) -> int:
-    """Parse *argv*, run the comparison and return an exit code."""
+def run(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -53,21 +62,20 @@ def run(argv: Optional[List[str]] = None) -> int:
     except EnvParseError as exc:
         print(f"envdiff: parse error: {exc}", file=sys.stderr)
         return 2
-    except OSError as exc:
-        print(f"envdiff: {exc}", file=sys.stderr)
-        return 2
 
-    result = compare_envs(left_env, right_env)
+    filter_cfg = build_filter_config(
+        include=args.include,
+        exclude=args.exclude,
+        prefix=args.prefix,
+    )
+
+    result = compare_envs(left_env, right_env, filter_config=filter_cfg)
+    formatted = format_result(result, fmt=args.fmt, left=args.left, right=args.right)
 
     try:
-        write_report(
-            result,
-            fmt=args.fmt,
-            output_path=args.output,
-            color=not args.no_color,
-        )
+        write_report(formatted, output=args.output)
     except ReportError as exc:
-        print(f"envdiff: {exc}", file=sys.stderr)
+        print(f"envdiff: output error: {exc}", file=sys.stderr)
         return 2
 
     return report_exit_code(result)
@@ -75,7 +83,3 @@ def run(argv: Optional[List[str]] = None) -> int:
 
 def main() -> None:  # pragma: no cover
     sys.exit(run())
-
-
-if __name__ == "__main__":  # pragma: no cover
-    main()

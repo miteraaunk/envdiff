@@ -1,68 +1,76 @@
-"""Tests for envdiff.comparator module."""
+"""Tests for envdiff.comparator."""
 
 import pytest
-from envdiff.comparator import compare_envs, DiffResult
 
+from envdiff.comparator import DiffResult, compare_envs, has_differences, summary
+from envdiff.filter import build_filter_config
 
-LEFT = {"HOST": "localhost", "PORT": "5432", "DEBUG": "true"}
-RIGHT = {"HOST": "prod.example.com", "PORT": "5432", "SECRET_KEY": "abc123"}
+LEFT = {"APP_HOST": "localhost", "APP_PORT": "8080", "DB_URL": "postgres://left"}
+RIGHT = {"APP_HOST": "localhost", "APP_PORT": "9090", "SECRET": "abc"}
 
 
 def test_missing_in_right():
     result = compare_envs(LEFT, RIGHT)
-    assert "DEBUG" in result.missing_in_right
-    assert "SECRET_KEY" not in result.missing_in_right
+    assert "DB_URL" in result.missing_in_right
 
 
 def test_missing_in_left():
     result = compare_envs(LEFT, RIGHT)
-    assert "SECRET_KEY" in result.missing_in_left
-    assert "DEBUG" not in result.missing_in_left
+    assert "SECRET" in result.missing_in_left
 
 
 def test_value_mismatch_detected():
     result = compare_envs(LEFT, RIGHT)
-    assert "HOST" in result.value_mismatches
-    assert result.value_mismatches["HOST"] == ("localhost", "prod.example.com")
+    assert "APP_PORT" in result.mismatches
+    assert result.mismatches["APP_PORT"] == ("8080", "9090")
 
 
 def test_no_mismatch_for_equal_value():
     result = compare_envs(LEFT, RIGHT)
-    assert "PORT" not in result.value_mismatches
+    assert "APP_HOST" not in result.mismatches
+    assert "APP_HOST" in result.matching
 
 
 def test_has_differences_true():
     result = compare_envs(LEFT, RIGHT)
-    assert result.has_differences is True
+    assert has_differences(result) is True
 
 
 def test_has_differences_false():
-    env = {"KEY": "value"}
-    result = compare_envs(env, env.copy())
-    assert result.has_differences is False
-
-
-def test_labels_in_summary():
-    result = compare_envs(LEFT, RIGHT, left_label="dev", right_label="prod")
-    summary = result.summary()
-    assert "[dev]" in summary
-    assert "[prod]" in summary
+    same = {"K": "V"}
+    result = compare_envs(same, same)
+    assert has_differences(result) is False
 
 
 def test_summary_no_differences():
-    env = {"A": "1", "B": "2"}
-    result = compare_envs(env, env.copy())
-    assert result.summary() == "No differences found."
+    same = {"K": "V"}
+    result = compare_envs(same, same)
+    assert summary(result) == "No differences found."
 
 
-def test_none_values_mismatch():
-    left = {"KEY": None}
-    right = {"KEY": "value"}
-    result = compare_envs(left, right)
-    assert "KEY" in result.value_mismatches
-    assert result.value_mismatches["KEY"] == (None, "value")
+def test_summary_with_differences():
+    result = compare_envs(LEFT, RIGHT)
+    s = summary(result)
+    assert "missing in right" in s
+    assert "missing in left" in s
+    assert "mismatch" in s
+
+
+def test_filter_limits_comparison():
+    cfg = build_filter_config(prefix="APP_")
+    result = compare_envs(LEFT, RIGHT, filter_config=cfg)
+    # DB_URL and SECRET are outside the prefix — should be ignored
+    assert "DB_URL" not in result.missing_in_right
+    assert "SECRET" not in result.missing_in_left
+    assert "APP_PORT" in result.mismatches
+
+
+def test_filter_exclude_key():
+    cfg = build_filter_config(exclude=["APP_PORT"])
+    result = compare_envs(LEFT, RIGHT, filter_config=cfg)
+    assert "APP_PORT" not in result.mismatches
 
 
 def test_empty_envs():
     result = compare_envs({}, {})
-    assert not result.has_differences
+    assert not has_differences(result)
